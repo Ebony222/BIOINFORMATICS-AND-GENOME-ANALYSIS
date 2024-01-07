@@ -1,0 +1,431 @@
+---
+title: "CHIP_seq"
+author: "Rofiah Adeyemi"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  word_document: default
+---
+
+SET WORKING DIRECTORY
+
+```{r setup, include=FALSE}
+setwd("C:/Users/rofia/OneDrive/Desktop/BGA/CHIP_seq")
+```
+
+INSTALL PACKAGES
+
+```{r, eval=FALSE}
+packages = c(
+ 'AnnotationHub',
+ 'Biostrings',
+ 'BSgenome',
+ 'BSgenome.Hsapiens.UCSC.hg38',
+ 'circlize',
+ 'ComplexHeatmap',
+ 'dplyr',
+ 'GenomicAlignments',
+ 'GenomicFeatures',
+ 'GenomicRanges',
+ 'GenomeInfoDB',
+ 'ggplot2',
+ 'Gviz',
+ 'JASPAR2018',
+ 'MotifDb',
+ 'motifRG',
+ 'motifStack',
+ 'normr',
+ 'rtracklayer',
+ 'seqLogo',
+ 'TFBSTools',
+ 'tidyr')
+BiocManager::install(packages)
+```
+
+
+Download data
+
+```{r, eval=FALSE}
+options(timeout=500)
+devtools::install_github("compgenomr/compGenomRData")
+```
+
+```{r, eval=FALSE}
+data_path = system.file('extdata/chip-seq',package='compGenomRData')
+data_path
+```
+
+```{r, eval=FALSE}
+# If this doesn't work,install the package from source by downloading the tar.gz file from here: https://github.com/compgenomr/compGenomRData/releases/tag/v1.0. 
+#then go to downloads directory in the R terminal ('cd /c/Users/manso/Downloads') and run the following command: 'R CMD INSTALL compGenomRData-1.0.tar.gz'
+```
+
+list files in the data
+
+```{r, eval=FALSE}
+chip_files = list.files(data_path, full.names=F)
+# F means false and it would not include each file paths
+chip_files
+```
+
+ChIP Quality Control 1. Sample Clustering
+
+#Use the GenomeInfoDb to fetch the chromosome lengths corresponding to the hg38 version of the human genome, and filter the length for human chromosome 21.
+
+```{r, eval=FALSE}
+# load the chromosome info package
+#if (!require("BiocManager", quietly = TRUE))
+   # install.packages("BiocManager")
+
+BiocManager::install("GenomeInfoDb")
+library(GenomeInfoDb)
+
+# fetch the chromosome lengths for the human genome
+hg_chrs = getChromInfoFromUCSC('hg38')
+
+# find the length of chromosome 21
+hg_chrs = subset(hg_chrs, grepl('chr21$',chrom))
+#hg_chrs = subset(hg_chrs, grepl('chr21$',UCSC_seqlevel))
+```
+
+```{r, eval=FALSE}
+packageVersion("BiocManager")
+
+BiocManager::version()
+
+BiocManager::install(version = "3.16")
+
+BiocManager::install("Bioconductor/GenomeInfoDb")
+```
+
+
+# Use tileGenome function from the GenomicRanges package constructs equally sized windows over the genome of interest. The function takes two arguments:
+
+# First, convert the chromosome lengths data.frame into a named vector
+
+```{r, eval=FALSE}
+seqlengths = with(hg_chrs, setNames(size, chrom))
+seqlengths
+```
+
+# Second, construct the tilling windows.
+```{r, eval=FALSE}
+# load the genomic ranges package
+library(GenomicRanges)
+```
+
+```{r, eval=FALSE}
+# tileGenome function returns a list of GRanges of a given width,
+# spanning the whole chromosome
+tilling_window = tileGenome(seqlengths, tilewidth=1000)
+```
+
+```{r, eval=FALSE}
+# unlist converts the list to one GRanges object
+tilling_window = unlist(tilling_window)
+tilling_window
+```
+
+3.1.3. Use the summarizeOverlaps function from the GenomicAlignments package to count the number of reads in each genomic window.
+```{r, eval=FALSE}
+#load GenomicAlignments
+library(GenomicAlignments)
+```
+
+```{r, eval=FALSE}
+# fetch bam files from the data folder
+bam_files = list.files(path = data_path,
+ full.names = TRUE,
+ pattern = 'bam$')
+```
+
+```{r, eval=FALSE}
+# use summarizeOverlaps to count the reads
+so = summarizeOverlaps(tilling_window, bam_files)
+```
+
+```{r, eval=FALSE}
+# extract the counts from the SummarizedExperiment
+counts = assays(so)[[1]]
+```
+
+
+3.1.4. Normalisation
+For normalization procedure use cpm - counts per million.
+CPM=counts∗(106/total number of reads)
+```{r, eval=FALSE}
+# calculate the cpm from the counts matrix
+# the following command works because R calculates everything by columns
+cpm = t(t(counts)*(1000000/colSums(counts)))
+```
+
+
+3.1.5. Remove all tiles which do not have overlapping reads.
+```{r, eval=FALSE}
+# remove all tiles which do not contain reads
+cpm = cpm[rowSums(cpm) > 0,]
+```
+
+Use the sub function to shorten the column names of the cpm matrix
+```{r, eval=FALSE}
+# change the formatting of the column names
+# remove the .chr21.bam suffix
+colnames(cpm) = sub('.chr21.bam','', colnames(cpm))
+```
+
+```{r, eval=FALSE}
+# remove the GM12878_hg38 prefix
+colnames(cpm) = sub('GM12878_hg38_','',colnames(cpm))
+```
+
+3.1.6. Calculate pairwise pearson correlation coefficient using the cor function and
+visualise with heat map.
+A heatmap is a graphical representation of data where the individual values contained in a
+matrix are represented as colors. This page displays many examples built with R, both
+static and interactive.
+```{r, eval=FALSE}
+# calculates the pearson correlation coefficient between the samples
+correlation_matrix = cor(cpm, method='pearson')
+```
+
+Use Heat map function from the ComplexHeatmap
+```{r, eval=FALSE}
+# load ComplexHeatmap
+library(ComplexHeatmap)
+```
+
+```{r, eval=FALSE}
+# load the circlize package, and define the color palette which will be
+# used in the heatmap
+library(circlize)
+heatmap_col = circlize::colorRamp2(c(-1,0,1),c('blue','white','red'))
+```
+
+```{r, eval=FALSE}
+# plot the heatmap using the Heatmap function
+Heatmap(correlation_matrix,
+col = heatmap_col)
+```
+
+# Summary of QC results:
+Here we can see a good example of why quality control is important.
+1. CTCF is a zinc finger protein which co-localizes with the Cohesin complex.
+2. SMC3 is a sub unit of the Cohesin complex, and we would therefore expect to see
+that
+the SMC3 signal profile has high correlation with the CTCF signal profile.
+3. This is true for the second biological replicate of SMC3, while the first replicate
+(SMC3_r1) clusters with the input samples.
+4. This indicates that the sample likely has low enrichment.
+5. We can also observe that the ChIP and Input samples form separate cluster. This
+implies that the ChIP samples have an enrichment of fragments.
+6. We also see that the biological replicates of other experiments cluster together
+
+
+# 3.2 Visualization the Genome Browser
+One of the first steps in any ChIP-seq analysis should be looking at the data. This can be
+achieved either by plotting signal profiles around regions of interest, or by loading data
+into a genome browser (such as IGV, or UCSC genome browsers).
+First import a .bam file into R. Then we will calculate the signal profile (construct the
+coverage vector), and finally, we export the vector as a .bigWig file.
+
+# 3.2.1. Select one of the ChIP samples.
+```{r}
+# list the bam files in the directory
+# The '$' sign tells the pattern recognizer to omit bam.bai files
+bam_files = list.files(data_path, full.names=TRUE, pattern='bam$')
+# select the first bam file
+chip_file = bam_files[1]
+```
+
+# 3.2.2. Use the readGAlignemnts function from the GenomicAlignemnts package to load the reads into R, and then the granges function to convert them into a GRanges object.
+```{r}
+# load the genomic alignments package
+library(GenomicAlignments)
+# read the ChIP reads into R
+reads = readGAlignments(chip_file)
+# the reads need to be converted to a granges object
+reads = granges(reads)
+```
+
+# 3.2.3. Extend reads towards their 3’ end to correct for read location mismatches and convert reads into signals
+```{r}
+# extends the reads towards the 3' end
+reads = resize(reads, width=200, fix='start')
+# keeps only chromosome 21
+reads = keepSeqlevels(reads, 'chr21', pruning.mode='coarse')
+# convert the reads into a signal profile
+cov = coverage(reads, width = seqlengths)
+```
+
+# 3.2.4. Create output file name by changing the file suffix from .bam to .bigWig
+```{r}
+# change the file extension from .bam to .bigWig
+output_file = sub('.bam','.bigWig', chip_file)
+```
+
+Now we can use the export.bw function from the rtracklayer package to write the bigWig file. BigWig files are a compressed, indexed, binary format for genome-wide signal data for calculations (e.g. GC percent) or experiments (e.g. ChIP-seq/RNA-seq read depth).
+```{r}
+# load the rtracklayer package
+library(rtracklayer)
+# export the bigWig output file
+export.bw(cov, 'output_file')
+```
+
+# 3.3 Gviz
+Gviz is a tool which enables exhaustive customized visualization of genomics experiments.
+How to: Define tracks, where each track can represent genomic annotation, or a signal profile; subsequently we define the order of the tracks and plot them.
+Define two tracks:
+• a genome axis, which will show the position along the human chromosome 21;
+• and a signal track from our CTCF experiment.
+CCCTC-binding factor (CTCF) is a highly conserved zinc finger protein and is best known as a transcription factor. It can function as a transcriptional activator, a repressor or an insulator protein, blocking the communication between enhancers and promoters.Tracks are plotted with the plotTracks function. sizes argument needs to be the same size as the track_list, and defines the relative size of each track.
+
+```{r}
+# plot the list of browser tracks
+# sizes argument defines the relative sizes of tracks
+# background title defines the color for the track labels
+plotTracks(trackList = , sizes=c(.1,1), background.title = "brown")
+```
+
+
+
+# 3.4. Plus and minus strand cross-correlation validation
+Cross-correlation between plus and minus strands is a method which quantifies whether
+the DNA library was enriched for fragments of a certain length. Similarity between the plus and minus strands defined as the correlation of the signal profiles for the reads that map to the + and the - strands.
+Similarity between two boolean vectors can be promptly computed using the Jaccard index.
+Jaccard index is defined as an intersection between two boolean vectors, divided by their
+union.
+
+Jaccard similarity is defined as the ratio of the intersection and union of two sets
+```{r, eval=FALSE}
+# load the reads
+reads = readGAlignments(chip_file)
+reads = granges(reads)
+```
+
+```{r}
+# keep only the starting position of each read
+reads = resize(reads, width=1, fix='start')
+reads = keepSeqlevels(reads, 'chr21', pruning.mode='coarse')
+# calculate the coverage profile for plus and minus strand
+reads = split(reads, strand(reads))
+# coverage(x, width = seqlengths)[[1]] > 0 calculates the coverage and
+# converts the coverage vector into a boolean
+cov = lapply(reads, function(x)coverage(x, width = seqlengths)[[1]] > 0)
+cov = lapply(cov, as.vector)
+# defines the shift range
+wsize = 1:400
+# defines the jaccard similarity
+jaccard = function(x,y)sum((x & y)) / sum((x | y))
+# shifts the + vector by 1 - 400 nucleotides and calculates the correlation coefficient
+cc = shiftApply(wsize, cov[['+']], cov[['-']], FUN=jaccard)
+# converts the results into a data frame
+cc = data.frame(fragment_size = wsize, cross_correlation = cc)
+```
+
+We can finally plot the shift Vs the correlation coefficient:
+```{r}
+library(ggplot2)
+ggplot(data = cc, aes(fragment_size, cross_correlation)) +
+geom_point() +
+geom_vline(xintercept = which.max(cc$cross_correlation),
+size=2, color='red', linetype=2) +
+theme_bw() +
+theme(
+axis.text = element_text(size=10, face='bold'),
+axis.title = element_text(size=14,face="bold"),
+plot.title = element_text(hjust = 0.5)) +
+xlab('Shift in base pairs') +
+ylab('Jaccard similarity')
+```
+
+# 3.5. GC bias quantification
+```{r, eval=FALSE}
+# fetches the chromosome lengths and constructs the tiles
+library(GenomeInfoDb)
+library(GenomicRanges)
+hg_chrs = getChromInfoFromUCSC('hg38')
+hg_chrs = subset(hg_chrs, grepl('chr21$',chrom))
+seqlengths = with(hg_chrs, setNames(size, chrom))
+tilling_window = unlist(tileGenome(seqlengths, tilewidth=1000))
+```
+
+
+# 3.5.1. Extract the sequence information from the BSgenome.Hsapiens.UCSC.hg38 package.
+```{r, eval=FALSE}
+# loads the human genome sequence
+BiocManager::install("BSgenome.Hsapiens.UCSC.hg38", force = TRUE)
+library(BSgenome.Hsapiens.UCSC.hg38)
+## Loading required package: BSgenome
+# extracts the sequence from the human genome
+seq = getSeq(BSgenome.Hsapiens.UCSC.hg38, tilling_window)
+```
+
+# 3.5.2. Calculate the GC content
+```{r, eval=FALSE}
+library(Biostrings)
+# calculates the frequency of all possible dimers
+# in our sequence set
+nuc = oligonucleotideFrequency(seq, width = 2)
+# converts the matrix into a data.frame
+nuc = as.data.frame(nuc)
+# calculates the percentages, and rounds the number
+nuc = round(nuc/1000,3)
+```
+
+# 3.5.3. Combine the GC frequency with the cpm values
+# 3.5.4. Combine the cpm values with the GC content, and plot the results.
+```{r, eval=FALSE}
+gc = cbind(data.frame("cpm_log"), GC = nuc['GC'])
+ggplot(data = gc, aes(GC, GM12878_hg38_CTCF_r1.chr21.bam)) + geom_point(size=2, alpha=.3) + theme_bw() + theme (axis.text = element_text(size=10, face='bold'), axis.title = element_text(size=14,face="bold"),
+plot.title = element_text(hjust = 0.5)) + xlab('GC content in one kilobase windows') + ylab('log10( cpm + 1 )') +
+ggtitle('CTCF Replicate 1')
+```
+
+
+# 3.5.5. Comparison of plots corresponding to multiple experiments.
+Reorder the columns of the data.frame using the gather function from the tidyr package
+```{r, eval=FALSE}
+# load the tidyr package
+library(tidyr)
+## Attaching package: 'tidyr'
+## The following object is masked from 'package:S4Vectors':
+##
+## expand
+# gather converts a fat data.frame into a tall data.frame, which is
+# the format used by the ggplot package
+gcd = gather(data = gc, experiment, cpm, -GC)
+# we select the ChIP files corresponding to the ctcf experiment
+gcd = subset(gcd, grepl('CTCF', experiment))
+# remove the chr21 suffix
+gcd$experiment = sub('chr21.','',gcd$experiment)
+ggplot(data = gcd, aes(GC, log10(cpm+1))) +
+geom_point(size=2, alpha=.05) +
+theme_bw() +
+facet_wrap(~experiment, nrow=1)+
+theme(
+axis.text = element_text(size=10, face='bold'),
+axis.title = element_text(size=14,face="bold"),
+plot.title = element_text(hjust = 0.5)) +
+xlab('GC content in one kilobase windows') +
+ylab('log10( cpm + 1 )') +
+ggtitle('CTCF Replicates 1 and 2')
+```
+
+# 3.6. Sequence read genomic distribution
+# 3.6.1. Hierarchical annotation of genomic features and Finding Annotations Construct the set of functional genomic regions, and annotate the reads.
+```{r, eval=FALSE}
+# load the AnnotationHub package
+library(AnnotationHub)
+
+# connect to the hub object
+hub = AnnotationHub()
+## snapshotDate(): 2021-10-20
+# query the hub for the human annotation
+AnnotationHub::query(hub, c('ENSEMBL','Homo','GRCh38','chr','gtf'))
+gtf = hub[['AH61126']]
+## loading from cache
+## Importing File into R ..
+# paste the chr prefix to chromosome names
+seqlevels(gtf, pruning.mode='coarse') = paste0('chr', seqlevels(gtf)) 
+```
+

@@ -1,0 +1,405 @@
+---
+title: "LDA"
+author: "Rofiah Adeyemi"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+Set the working directory
+
+```{r}
+setwd("C:/Users/rofia/OneDrive/Desktop/LDA_WEEK4")
+```
+
+STEP 1: LOAD PACKAGES
+
+```{r}
+BiocManager::install("RISmed")
+BiocManager::install("easyPubMed")
+BiocManager::install("tidyverse")
+```
+
+```{r}
+library(RISmed)
+library(easyPubMed)
+library(tidyverse)
+```
+
+```{r eval=FALSE}
+install.packages("scales")
+```
+
+```{r eval=FALSE}
+install.packages('rlang')
+```
+
+```{r}
+BiocManager::install("topicmodels")
+```
+
+```{r}
+library(topicmodels)
+library(tm)
+```
+
+```{r}
+BiocManager::install("tidytext")
+```
+
+```{r}
+BiocManager::install("wordcloud")
+```
+
+```{r}
+library(dplyr)
+library(tidytext)
+library(ggplot2)
+library(wordcloud)
+```
+
+```{r}
+library(reshape2)
+```
+
+Search 'chiari malformation I AND (genetics OR genes OR SNPs OR genome)'
+
+```{r}
+search <- 'chiari malformation I AND (genetics OR genes OR SNPs OR genome)'
+search_query <- EUtilsSummary(search, type='esearch', db='pubmed')
+summary(search_query)
+```
+
+```{r}
+tally <- array()
+x <- 1
+for (i in 1955:2023){
+  Sys.sleep(1)
+  r <- EUtilsSummary(search, type='esearch', db='pubmed', mindate=i, maxdate=i)
+  tally[x] <- QueryCount(r)
+  x <- x + 1
+}
+```
+
+```{r}
+names(tally) <- 1955:2023
+max(tally)
+```
+
+```{r}
+barplot(tally, las=1, ylim=c(0,35), main= "PubMed articles published per year relevant to CMI and genetics", xlab= 'Years' , ylab='N of articles')
+```
+
+STEP 2: Download articles
+
+```{r}
+#418 articles  
+batch_pubmed_download(search, 
+                      dest_dir = NULL, 
+                      dest_file_prefix = "CMI&Genetics", 
+                      format = "xml", 
+                      api_key = NULL, 
+                      batch_size = 411, 
+                      res_cn = 1, 
+                      encoding = "UTF-8")
+```
+
+STEP 3: Create df(Genetics) with all articles
+
+```{r}
+genetics<- "C:/Users/rofia/OneDrive/Desktop/LDA_WEEK4/CMI&Genetics01.txt"
+
+# Store Pubmed Records as elements of a list
+genetics_list <- articles_to_list(genetics)
+
+# article_to_df(, getAuthors = FALSE), for fast extraction of PubMed record titles and abstracts
+genetics_df <- do.call(rbind, lapply(genetics_list, article_to_df, max_chars = -1, getAuthors = FALSE))
+```
+
+Save df as csv
+
+```{r}
+write.csv (genetics_df, file="CMI&Genetics.csv", row.names = TRUE)
+```
+
+Clean up DF Keep PMID number , title and Abstacts and save into a data frame:
+
+```{r}
+# CMI-genetics
+finalDF <- data.frame('PMID'=genetics_df$pmid, 'Title'=genetics_df$title,'Abstract'=genetics_df$abstract)
+```
+
+Explore NAs and duplicates in abstract colummn Final DF with all articles
+
+```{r}
+# NAs
+## Explore NA's in abstract column
+sum(is.na(finalDF$Abstract)) # 32 NAs  
+```
+
+```{r}
+# remove NA from abstract
+library(tidyr)
+finalDF<-drop_na(finalDF, Abstract) # 403 - 32 dropped = 371 articles left 
+
+# Duplicates
+## Count number of duplicated abstracts
+sum(table(finalDF$Title)-1) # 0
+```
+
+```{r}
+## remove duplicates
+finalDF <- unique(finalDF, by='Abstract') # 371 - 0 dropped = 371 articles left
+```
+
+Save final dataframe as csv
+
+```{r}
+write.csv (finalDF, file="finalCMIgenes.csv", row.names = TRUE)
+```
+
+# LDA
+
+#STEP 1 - Import data from articles about genetics and snps already saved
+
+```{r}
+list.files("C:/Users/rofia/OneDrive/Desktop/LDA_WEEK4")
+```
+
+```{r}
+library(data.table)
+```
+
+```{r}
+data <-fread("C:/Users/rofia/OneDrive/Desktop/LDA_WEEK4/finalCMIgenes.csv")
+data<-subset(data, select = -c (PMID))#remove PMID columns 
+
+
+#remove dupllicates
+data <- unique(data) #zero dup
+
+
+data <- data %>% select(Title,Abstract) # Keep only title and abst
+data
+```
+
+#STEP 2: Preprocessing
+
+```{r}
+text_cleaning_tokens <- data %>% 
+  tidytext::unnest_tokens(word, Abstract)
+
+text_cleaning_tokens$word <- gsub('[[:digit:]]+', '', text_cleaning_tokens$word)
+
+text_cleaning_tokens$word <- gsub('[[:punct:]]+', '', text_cleaning_tokens$word)
+
+text_cleaning_tokens<- text_cleaning_tokens %>% filter(!(nchar(word) == 1))%>% 
+  anti_join(stop_words)
+```
+
+Tokens:
+
+```{r}
+tokens <- text_cleaning_tokens %>% filter(!(word==""))
+
+tokens <- tokens %>% mutate(ind = row_number())
+
+tokens <- tokens %>% group_by(Title) %>% mutate(ind = row_number()) %>%
+  tidyr::spread(key = ind, value = word)
+
+tokens [is.na(tokens)] <- ""
+
+tokens <- tidyr::unite(tokens, Abstract,-Title,sep =" " )
+
+tokens$Abstract <- trimws(tokens$Abstract)
+```
+
+STEP 3: Create DTM
+
+```{r}
+library(textmineR)
+```
+
+```{r}
+dtm <- CreateDtm(tokens$Abstract, 
+                 doc_names = tokens$Title, 
+                 ngram_window = c(1, 2))
+```
+
+# STEP 4: Exploration
+
+explore the basic frequency
+
+```{r}
+tf <- TermDocFreq(dtm = dtm)
+original_tf <- tf %>% select(term, term_freq,doc_freq)
+rownames(original_tf) <- 1:nrow(original_tf)
+```
+
+```{r}
+tf
+```
+
+#STEP 5 - Filtering Eliminate words appearing less than 2 times or in more than half of the documents
+
+```{r}
+vocabulary <- tf$term[ tf$term_freq > 1 & tf$doc_freq < nrow(dtm) / 2 ] 
+dtm = dtm
+```
+
+#STEP 6 - Running LDA
+
+```{r}
+k_list <- seq(1, 30, by = 1)
+
+model_dir <- paste0("models_", digest::digest(vocabulary, algo = "sha1"))
+
+if (!dir.exists(model_dir)) dir.create(model_dir)
+model_list <- TmParallelApply(X = k_list, FUN = function(k){
+  filename = file.path(model_dir, paste0(k, "_topics.rda"))
+  
+  if (!file.exists(filename)) {
+    m <- FitLdaModel(dtm = dtm, k = k, iterations = 30)
+    m$k <- k
+    m$coherence <- CalcProbCoherence(phi = m$phi, dtm = dtm, M = 10)
+    save(m, file = filename)
+  } else {
+    load(filename)
+  }
+  
+  m
+}, export=c("dtm", "model_dir")) # export only needed for Windows machines
+
+library(ggplot2)
+#model tuning
+#choosing the best model
+coherence_mat <- data.frame(k = sapply(model_list, function(x) nrow(x$phi)),
+                            coherence = sapply(model_list, function(x) mean(x$coherence)), 
+                            stringsAsFactors = FALSE) 
+ggplot2(coherence_mat, aes(x = k, y = coherence)) + 
+  geom_point() +
+  geom_line(group = 1)+ 
+  ggtitle("Best number of Topics by Coherence Score") + theme_minimal() +
+  scale_x_continuous(breaks = seq(1,30,5)) + ylab("Coherence")
+```
+
+```{r}
+#coherence_mat -> shows the coherence for each number of k
+#model <- model_list[which.max(coherence_mat$coherence)][[ 1 ]] #for the best k
+model <- model_list[[8]] #for k=8 -> 8 topics
+```
+
+#Top 20 terms based on phi
+
+```{r}
+model$top_terms <- GetTopTerms(phi = model$phi, M = 20)
+top20_wide <- as.data.frame(model$top_terms)
+
+top20_wide
+```
+
+```{r}
+#save top20 topics
+write.csv(top20_wide,file="top8topics-Genetics.csv", row.names = TRUE)
+```
+
+Word-topic relationship
+
+```{r}
+#looking at the terms allocated to the topic and their pr(word|topic)
+
+allterms <-data.frame(t(model$phi))
+allterms$word <- rownames(allterms)
+rownames(allterms) <- 1:nrow(allterms)
+allterms <- melt(allterms,idvars = "word") 
+```
+
+```{r}
+allterms <- allterms %>% rename(topic = variable)
+FINAL_allterms <- allterms %>% group_by(topic) %>% arrange(desc(value))
+FINAL_allterms
+```
+
+# Word topic freq
+
+```{r}
+final_summary_words <- data.frame(top_terms = t(model$top_terms))
+final_summary_words$topic <- rownames(final_summary_words)
+rownames(final_summary_words) <- 1:nrow(final_summary_words)
+final_summary_words <- final_summary_words %>% melt(id.vars = c("topic"))
+```
+
+```{r}
+final_summary_words <- final_summary_words %>% rename(word = value) %>% select(-variable)
+final_summary_words <- left_join(final_summary_words,allterms)
+```
+
+# Per-document-per-topic probabilities
+
+```{r}
+#trying to see the topic in each document
+theta_df <- data.frame(model$theta) # matrix with coherence score for each document and topic
+theta_df$document <-rownames(theta_df) 
+rownames(theta_df) <- 1:nrow(theta_df)
+#theta_df$document <- as.numeric(theta_df$document)
+
+theta_df <- melt(theta_df,id.vars = "document")
+```
+
+```{r}
+theta_df <- theta_df %>% rename(topic = variable) 
+theta_df <- theta_df %>% tidyr::separate(topic, into =c("t","topic")) %>% select(-t)
+FINAL_document_topic <- theta_df %>% group_by(document) %>% 
+  arrange(desc(value)) %>% filter(row_number() ==1)
+
+FINAL_document_topic
+```
+
+# save title per topic in CSV file
+
+```{r}
+write.csv(FINAL_document_topic, file="Doc-topic.csv", row.names = TRUE)
+```
+
+# Visualising topics in a dendrogram
+
+```{r}
+#probability distributions called Hellinger distance, distance between 2 probability vectors
+model$topic_linguistic_dist <- CalcHellingerDist(model$phi)
+model$hclust <- hclust(as.dist(model$topic_linguistic_dist), "ward.D")
+model$hclust$labels <- paste(model$hclust$labels, model$labels[ , 1])
+plot(model$hclust)
+```
+
+# Visualising topics of words based on the max value of phi
+
+```{r}
+set.seed(1234)
+pdf("cluster-CMI&allGenetics.pdf")
+for(i in 1:length(unique(final_summary_words$topic)))
+{  wordcloud(words = subset(final_summary_words ,topic == i)$word, freq = subset(final_summary_words ,topic == i)$value, min.freq = 1,
+             max.words=200, random.order=FALSE, rot.per=0.35, 
+             colors=brewer.pal(8, "Dark2"))}
+
+
+dev.off()
+```
+
+Visualizing LDA with LDAvis
+
+```{r}
+library(LDAvis)   
+
+
+dtm = dtm[slam::row_sums(dtm) > 0, ]
+
+
+vocab <- colnames(model$phi)
+doc.length = slam::row_sums(dtm)
+term.freq = slam::col_sums(dtm)[match(vocab, colnames(dtm))]
+
+json = createJSON(phi = model$phi, theta = model$theta, vocab = vocab,
+     doc.length = doc.length, term.frequency = term.freq)
+serVis(json)
+```

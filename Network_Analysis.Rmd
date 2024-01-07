@@ -1,0 +1,493 @@
+---
+title: "Network Analysis"
+author: "Rofiah Adeyemi"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  html_document: default
+---
+# WGCNA
+  Weighted Gene Co-expression Network Analysis is referred to as WGCNA. It is a popular bioinformatics technique for examining gene expression data. The main purpose of WGCNA is to find groups or modules of genes that show comparable expression patterns across samples or circumstances. By determining pairwise correlations between genes based on their levels of expression, the WGCNA creates a co-expression network. The level of co-expression between genes is then reflected by the correlation values being translated into a measure of similarity, such as adjacency or topological overlap. Genes serve as nodes in this network's graph, and edges denote the degree of co-expression between them. The modules or groups of highly coupled genes are discovered after the network has been built. These modules are collections of genes that frequently co-express one another and may share similar biological processes or activities. The identification of hub genes, which are closely linked genes within a module and may be important players in the underlying biological processes, is another benefit of WGCNA
+
+# II - Methodology: Getting started with R and Weighted Gene Co-expression Network Analysis
+1 Data Preprocessing 
+2 Construction of co-expression network
+3 Network construction
+4 Module identification
+5 Module visualization
+6 Module trait analysis
+
+
+# Step 1 - Install and load packages
+```{r setup, include=FALSE}
+# options(repos = "https://cloud.r-project.org")
+options(repos = "Matrix_eQTL_R/Matrix_eQTL_engine.r")
+install.packages("BiocManager")
+BiocManager::install("WGCNA")
+library(WGCNA)
+```
+
+# Step 2 - Data input
+# 2.1 - Expression Data
+```{r}
+femData = read.csv("C:/Users/rofia/OneDrive/Desktop/BGA/Network analysis/femData.csv")
+dim(femData)
+names(femData)
+```
+The expression data was loaded.
+
+# 2.1.1 - Remove the auxiliary data and transpose the expression data for further analysis
+```{r}
+datExpr0 = as.data.frame(t(femData[, -c(1:8)]))
+names(datExpr0) = femData$substanceBXH
+names(datExpr0)
+
+rownames(datExpr0) = names(femData)[-c(1:8)]
+
+```
+A subset of the dataset was created excluding the first 8 columns.
+
+
+# 2.1.2 - Check data for excessive missing values and identification of outlier microarray Samples
+```{r, eval=FALSE}
+#as.numeric()
+gsg = goodSamplesGenes(datExpr0, verbose = 3)
+gsg$allOK
+```
+This function goodSamplesGenes() checks data for missing entries, entries with Ages below a threshold, and zero-variance genes, and returns a list of samples and genes that pass criteria on maximum number of missing or low Age values. If necessary, the filtering is iterated. The goodSamples are logical vector with one entry per sample that is TRUE if the sample is considered good and FALSE otherwise. The goodGenes are logical vector with one entry per gene that is TRUE if the gene is considered good and FALSE otherwise (Peter Langfelder).
+Note: [1] TRUE - All genes are OK.
+
+# Cluster the matrix to identify sample outliers Outlier detection and clustering analysis are two highly related tasks. Clustering finds the majority of patterns in a data set and organizes the data accordingly, whereas outlier detection tries to capture those exceptional cases that deviate substantially from the majority of patterns.
+
+
+```{r, eval=FALSE}
+head(gsg)
+```
+
+
+```{r, eval=FALSE}
+if (!gsg$allOK)
+{
+# Remove the offending genes and samples from the data:
+datExpr0 = datExpr0[gsg$goodSamples, gsg$goodGenes];
+}
+
+write.csv(datExpr0, "datExpr1.csv")
+
+```
+The dataset does not have and bad genes or samples, hence the dataset remained intact.
+
+```{r, eval=FALSE}
+library(flashClust)
+sampleTree = flashClust(dist(datExpr0), method = "average")
+```
+A dendogram was plotted using the flasgClust library.
+
+# 2.1.3 - Plot the sample tree to detect outliers
+Note: Plot the sample tree: Open a graphic output window of size 12 by 9 inches. The user should change the dimensions if the window is too large or too small.
+```{r, eval=FALSE}
+sizeGrWindow(12,9)
+par(cex = 0.6);
+par(mar = c(0,4,2,0))
+plot(sampleTree, main = "Sample clustering to detect outliers", sub="", xlab="", cex.lab = 1.5,
+cex.axis = 1.5, cex.main = 2)
+# Plot a line to show the cut
+abline(h = 15, col = "red");
+# Determine cluster under the line
+clust = cutreeStatic(sampleTree, cutHeight = 15, minSize = 10)
+table(clust)
+
+```
+From the dendogram, it is evident that the samples have different gene expression pattern.
+
+# 2.1.4 - Remove the outlier and construct the main data frame.
+```{r, eval=FALSE}
+# clust 1 contains the samples we want to keep.
+keepSamples = (clust==1)
+datExpr = datExpr0[keepSamples, ]
+nGenes = ncol(datExpr)
+nSamples = nrow(datExpr)
+
+colnames(datExpr)
+rownames(datExpr)
+
+```
+
+A subset of the dataset was created which contains only samples in cluster 1.
+
+# 2.2 - Load the clinical data, preapre and clean it.
+```{r, eval=FALSE}
+traitData = read.csv("C:/Users/rofia/OneDrive/Desktop/BGA/Network analysis/ClinicalTraits.csv")
+dim(traitData)
+names(traitData)
+
+```
+The trait dataset which contains gene expression levels, phenotypic traits, environmental factors and social attributes is read to understand the relationship between nodes, dynamics and netwrok structure.
+
+# remove columns that hold information we do not need.
+```{r, eval=FALSE}
+allTraits = traitData[, -c(31, 16)];          #remove note (col31) and comment (col16)
+allTraits = allTraits[, c(2, 11:36) ];
+dim(allTraits)
+names(allTraits)
+
+```
+
+Irrelevant columns to the analysis were removed
+
+# Form a data frame analogous to expression data that will hold the clinical traits.
+```{r, eval=FALSE}
+femaleSamples = rownames(datExpr);
+traitRows = match(femaleSamples, allTraits$Mice);
+datTraits = allTraits[traitRows, -1];
+rownames(datTraits) = allTraits[traitRows, 1];
+collectGarbage();
+write.csv(femData, "femData.csv")
+write.csv(traitData, "traitData.csv")
+write.csv(datExpr, "datExpr.csv")
+write.csv(datTraits, "datTraits.csv")
+
+```
+A subset of the dataset containing relevant traits to the expression data was created.
+
+# Step 3 - Visualize how the clinical traits relate to the relate to the sample dendrogram
+```{r, eval=FALSE}
+# Re-cluster samples
+sampleTree2 = flashClust(dist(datExpr), method = "average")
+# Convert traits to color representation ( white: low, red: high, grey: missing entry)
+traitColors = numbers2colors(datTraits, signed = FALSE);
+# Plot the sample dendrogram and the colors underneath.
+plotDendroAndColors(sampleTree2, traitColors, groupLabels = names(datTraits),
+          main = "Sample dendrogram and trait heatmap")
+
+```
+ The hierarchical clustering above illustrates the relationship between traits and gene expression. It combines gene expression dendogram and trait heatmap together. 
+
+# Step 4 - Network construction and module detection
+# Note: Run this code if the next chunk is thrown following error "Error in (new("standardGeneric", .Data = function (x, y = NULL, use = "everything",  : unused arguments (weights.x = NULL, weights.y = NULL, cosine = FALSE)". Otherwise not to be run.
+```{r, eval=FALSE}
+cor=WGCNA::cor
+```
+The cor function in WGCNA was assigned to an object cor
+
+# 4.1 - Calculate soft-thresholding powers
+```{r, eval=FALSE}
+# Choose a set of soft-thresholding powers
+powers = c(c(1:10), seq(from = 12, to=20, by=2))
+# Call the network topology analysis function
+sft = pickSoftThreshold(datExpr, powerVector = powers, verbose = 5)
+```
+The above illustrates network topology using power as the soft threshold power. The result deploys soft-thresholding power from 1- 15, the scale-free topology fit index, slope of the linear regression, correlation between connectivity and node degree.
+
+# 4.2 - scale independence and Mean connectivity
+```{r, eval=FALSE}
+jpeg("plotScaleIndLiverFemale3600.jpeg", width = 480, height = 480)
+
+```
+
+
+```{r, eval=FALSE}
+# Plot the results:
+par(mfrow = c(1,2));
+# Scale-free topology fit index as a function of the soft-thresholding power
+plot(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+xlab="Soft Threshold (power)",ylab="Scale Free Topology Model Fit,signed R^2",type="n",
+     main = paste("Scale independence"));
+text(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+     labels=powers,cex=1,col="red");
+# this line corresponds to using an R^2 cut-off of h
+abline(h=0.90,col="red")
+# Mean connectivity as a function of the soft-thresholding power
+plot(sft$fitIndices[,1], sft$fitIndices[,5],
+     xlab="Soft Threshold (power)",ylab="Mean Connectivity", type="n",
+     main = paste("Mean connectivity"))
+text(sft$fitIndices[,1], sft$fitIndices[,5], labels=powers, cex=1,col="red")
+```
+  The x-axis represent the soft-threshold powers while the y -axis represent the connectivity values. The data points in the plot represent the soft-thresholding power values and their corresponding scale-free topology indices. the red text labels indicates the value of the soft-thresholding powers. the horizontal red line at y = 0.90 represents an R^2 cutoff value which implies that threshold power above 0.9 are a god fit to the scale-free network. 
+
+
+
+  As we can observe from the “scale independence”, the scale-free topology fit index reaches values above 0.8 for reasonable powers and the mean connectivity remains relatively high. We have chosen the soft thresholding power 6, the minimum at the bar (Langfelder P. and Horvath ., 2017). And then we instructed the function to generate modules of size 30, merge modules which was more than 25% similar and saved the Topology Overlap Matrix in an object.
+
+# 4.3 - Automatic, one-step network construction and module detection
+```{r, eval=FALSE}
+net = blockwiseModules(datExpr, power = 6, minModuleSize = 30,
+       reassignThreshold = 0, mergeCutHeight = 0.25,
+       numericLabels = TRUE, pamRespectsDendro = FALSE,
+       saveTOMs = TRUE, saveTOMFileBase = "femaleMouseTOM", verbose = 3)
+
+```
+The representative expression profiles for each modules (eigengene) using all genes in the network was calculated, genes and samples with numerous missing values were flagged. To facilitate efficient processing, the clusters were segmented into subclusters. The topological overlap matrix(TOM) was calculated based on the adjacency of genes in the network. About 0.396405 fraction of the TOM  calculation were slow. Matrix multiplication and normalization were performed. Module eigengenes were calculated and the module membership (kME) were checked. about 4 genes were removed from 4 different modules due to very low kME. Modules with distance les than 0.25 were merged. 
+
+# 4.4 - The structure of network
+```{r, eval=FALSE}
+str(net)
+```
+The result above provides information about the module assignments, eigengene values, sample and gene quality control, dendograms and block assignments in the network analysis.
+
+# 4.5 - To see how many modules were identifed and what the module sizes are,
+```{r, eval=FALSE}
+table(net$color)
+```
+The table shows the count of genes or modules assigned to each color, where "0", "1", "2", etc., represent the unique colors in the network, and the corresponding numbers indicate the count associated with each color.
+ 
+# 4.6 - The dendrogram can be displayed together with the color assignment using the following code
+```{r, eval=FALSE}
+# open a graphics window
+sizeGrWindow(12, 9)
+# Convert labels to colors for plotting
+mergedColors = labels2colors(net$colors)
+# Plot the dendrogram and the module colors underneath
+plotDendroAndColors(net$dendrograms[[1]], mergedColors[net$blockGenes[[1]]],
+"Module colors", dendroLabels = FALSE, hang = 0.03, addGuide = TRUE, guideHang = 0.05)
+
+```
+  A dendrogram is a visual representation. Specifically, it is a tree or branch diagram where there are many elements at one end, and few, or one, at the other. The branches represent categories or classes and the diagram implies an order or relationship between these categories or classes. The members of these categories are similar in some fashion or have a number characteristics in common. Another name for these categories or classes is cluster. And the process of placing the items into a specific cluster is known as clustering.
+  The plot provides a visual representation of the clustering structure and module assignments in the network analysis.
+
+# 4.6.1 - Save the module information necessary for subsequent analysis.
+```{r, eval=FALSE}
+moduleLabels = net$colors
+moduleColors = labels2colors(net$colors)
+MEs = net$MEs;
+geneTree = net$dendrograms[[1]];
+save(MEs, moduleLabels, moduleColors, geneTree,
+file = "FemaleLiver-02-networkConstruction-auto.RData")
+
+```
+
+# 4.7 - Relating modules to external clinical traits
+Note: Compute 1 rst principal componet of each module as its eigengenes. Correlate eigengene external traits and look for the most significant associations.
+Note: Quantifying module–trait associations
+Here we identify modules that are significantly associated with the measured clinical traits. We already have a computed summary profile (eigengene) for each module, so then we simply correlate eigengenes with phenotypic traits and look for the most significant associations:
+```{r, eval=FALSE}
+# Define numbers of genes and samples
+nGenes = ncol(datExpr);
+nSamples = nrow(datExpr);
+# calculate eigengenes (1st principal component) of modules
+MEs0 = moduleEigengenes(datExpr, moduleColors)$eigengenes
+MEs = orderMEs(MEs0)
+moduleTraitCor = cor(MEs, datTraits, use = "p");
+moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamples);
+signif(moduleTraitPvalue)
+```
+The matrix above depicts the significant correlations between module eigengenes and traits.
+
+# 4.8 - A suitable graphical representation
+# Visualise the module-trait association: Each module eigengene and its correlation coefficient are ploted here. Since we have many a colour code aids the interprettion of the plot.
+```{r, eval=FALSE}
+# Open a graphic window with specified dimensions
+sizeGrWindow(10,6)
+# Will display correlations and their p-values
+textMatrix = paste(signif(moduleTraitCor, 2), "\n(", signif(moduleTraitPvalue, 1), ")", sep = "");
+dim(textMatrix) = dim(moduleTraitCor)
+par(mar = c(6, 8.5, 3, 3));
+# Display the correlation values within a heatmap plot
+labeledHeatmap(Matrix = moduleTraitCor,
+               xLabels = names(datTraits),
+               yLabels = names(MEs),
+               ySymbols = names(MEs),
+               colorLabels = FALSE,
+               colors = greenWhiteRed(50),
+               textMatrix = textMatrix,
+               setStdMargins = FALSE,
+               cex.text = 0.5,
+               zlim = c(-1,1),
+               main = paste("Module-trait relationships"))
+```
+The heatmap plot visualizes the correlations between module eigengenes and traits, with the corresponding p-values displayed as text within the heatmap cells
+
+Note: MEgrey contained genes that were not co-expressed, genes which have not show a coordinated expression pattern across a group of samples (Cheng-Xi Li et al., 2020, https://doi.org/10.3389/fmicb.2020.00520)
+
+# 4.9 - Genes contain in each modules
+```{r, eval=FALSE}
+BlackModGenes = names(datExpr)[moduleColors=="black"]
+write.csv(BlackModGenes, "C:/Users/rofia/OneDrive/Desktop/BGA/Network analysis/BlackModGenes.csv")
+GreyModGenes = names(datExpr)[moduleColors=="grey"]
+write.csv(GreyModGenes, "C:/Users/rofia/OneDrive/Desktop/BGA/Network analysis/GreyModGenes.csv")
+
+```
+Genes belonging to the black and grey modules were extracted separately for further analysis.
+
+# 4.10 - Collect all the information for significant genes related to weight_g.
+```{r, eval=FALSE}
+weight_g <- as.data.frame(datTraits[, "weight_g", drop = FALSE])
+names(weight_g) = "weight_g"
+modNames = substring(names(MEs), 3)
+geneModuleMembership = as.data.frame(cor(datExpr, MEs, use = "p"));
+MMPvalue = as.data.frame(corPvalueStudent(as.matrix(geneModuleMembership), nSamples));
+names(geneModuleMembership) = paste("MM", modNames, sep="");
+names(MMPvalue) = paste("p.MM", modNames, sep="");
+geneTraitSignificance = as.data.frame(cor(datExpr, weight_g, use = "p"));
+GSPvalue = as.data.frame(corPvalueStudent(as.matrix(geneTraitSignificance), nSamples));
+names(geneTraitSignificance) = paste("GS.", names(weight_g), sep="");
+names(GSPvalue) = paste("p.GS.", names(weight_g), sep="");
+# Create the starting data frame
+geneInfo0 = data.frame(geneSymbol = names(datExpr),
+                      moduleColor = moduleColors,
+                      geneTraitSignificance,
+                      GSPvalue)
+# Order modules by their significance for weight_g
+modOrder = order(-abs(cor(MEs, weight_g, use = "p")));
+# Add module membership information in the chosen order
+for (mod in 1:ncol(geneModuleMembership))
+{
+  oldNames = names(geneInfo0)
+  geneInfo0 = data.frame(geneInfo0, geneModuleMembership[, modOrder[mod]],
+                         MMPvalue[, modOrder[mod]]);
+  names(geneInfo0) = c(oldNames, paste("MM.", modNames[modOrder[mod]], sep=""),
+paste("p.MM.", modNames[modOrder[mod]], sep=""))
+}
+# Order the genes in the geneInfo variable first by module color, then by geneTraitSignificance
+geneOrder = order(geneInfo0$moduleColor, -abs(geneInfo0$GS.weight_g));
+geneInfo = geneInfo0[geneOrder, ]
+```
+  The genes are sorted based on module color and within each module, based on their significance.
+
+# 4.10.1 - Create the starting data frame
+```{r, eval=FALSE}
+geneSymb= colnames(datExpr)
+geneInfo0 = data.frame(Genes = geneSymb,
+                       moduleColor = moduleColors,
+                       geneTraitSignificance,
+                       GSPvalue)
+```
+ The dataframe created contains the genes, their module colors, and their significance with respect to the weight_g trait.
+
+# 4.10.2 - Order modules by their significance for weight_g
+```{r, eval=FALSE}
+modOrder = order(-abs(cor(MEs, weight_g, use = "p")))
+```
+  The modOrder contains the order of modules based on their absolute correlation with the weight_g trait, from the most significant to the least significant.
+
+# 4.10.3 - Order the genes in the geneInfo variable first by module color, then by geneTraitSignificance
+```{r, eval=FALSE}
+geneOrder = order(geneInfo0$moduleColor, -abs(geneInfo0$GS.weight_g));
+geneInfo = geneInfo0[geneOrder, ]
+```
+ The data frame was reordered to ensure the genes are arranged in the desired order based on module color and gene-trait significance.
+
+# 4.10.4 - order with variable p.GS.weight_g, is used to arrange in ascending order where the Genes, along with module Color and GS.weight_g information is also printed.
+```{r, eval=FALSE}
+geneInfoOrder = geneInfo[order(geneInfo$p.GS.weight_g),]
+
+```
+
+# 4.10.5 - Save
+```{r, eval=FALSE}
+write.csv(geneOrder, "C:/Users/rofia/OneDrive/Desktop/BGA/Network analysis/geneOrder_weight_g.csv")
+write.csv(geneInfo, "C:/Users/rofia/OneDrive/Desktop/BGA/Network analysis/geneInfo_weight_g.csv")
+write.csv(geneInfoOrder, "C:/Users/rofia/OneDrive/Desktop/BGA/Network analysis/geneInfoOrder_weight_g.csv")
+
+```
+
+# 4.11 - Hub genes
+```{r, eval=FALSE}
+hub = chooseTopHubInEachModule(datExpr, moduleColors)
+write.csv(hub, file = "C:/Users/rofia/OneDrive/Desktop/BGA/Network analysis/hub_genes_weight_g.csv")
+
+```
+  The top hub gene were selected within each module in the network analysis to identify genes that play important roles in the regulatory structure of the network. 
+
+
+# 4.11.1 - p-value
+```{r, eval=FALSE}
+write.csv(signif(moduleTraitPvalue), file = "C:/Users/rofia/OneDrive/Desktop/BGA/Network analysis/signif(moduleTraitPvalue).csv")
+
+```
+
+# 4.11 .2 - t-value
+```{r, eval=FALSE}
+write.csv(signif(moduleTraitCor), file = "C:/Users/rofia/OneDrive/Desktop/BGA/Network analysis/signif(moduleTraitCor).csv")
+
+```
+
+# 4.11.3 - write p-value as data frame
+```{r, eval=FALSE}
+df_pVal = as.data.frame(signif(moduleTraitPvalue))
+
+write.csv(df_pVal, file = "C:/Users/rofia/OneDrive/Desktop/BGA/Network analysis/df_pVal.csv")
+
+```
+
+# 4.11.4 - Plotting the graph
+```{r, eval=FALSE}
+module = "black"
+column = match(module, modNames);
+moduleGenes = moduleColors==module;
+pdf("black.pdf", width = 7, height = 7);
+par(mfrow = c(1,1));
+
+
+
+verboseScatterplot(abs(geneModuleMembership[moduleGenes, column]),
+                   abs(geneTraitSignificance[moduleGenes, 1]),
+                   xlab = paste("Module Membership in", module, "module"),
+                   ylab = "Gene significance",
+                   main = paste("Module membership vs. gene significance\n"),
+                   cex.main = 1.2, cex.lab = 1.2, cex.axis = 1.2, col = module)     
+dev.off()
+module = "brown"
+column = match(module, modNames);
+moduleGenes = moduleColors==module;
+pdf("brow.pdf", width = 7, height = 7);
+par(mfrow = c(1,1));
+
+verboseScatterplot(abs(geneModuleMembership[moduleGenes, column]),
+                   abs(geneTraitSignificance[moduleGenes, 1]),
+                   xlab = paste("Module Membership in", module, "module"),
+                   ylab = "Gene significance",
+                   main = paste("Module membership vs. gene significance\n"),
+                   cex.main = 1.2, cex.lab = 1.2, cex.axis = 1.2, col = module)     
+dev.off()
+
+```
+Scatterplots to visualize the relationship between module membership and gene significance for the "black" and "brown" modules were saved as PDF files.
+
+# Step 5 - Interfacing network analysis with other data such as functional annotation and gene ontology
+# 5.1 - Get LocusLinkID(entrez ID)
+```{r, eval=FALSE}
+# Read in the probe annotation
+annot = read.csv(file = "C:/Users/rofia/OneDrive/Desktop/BGA/Network analysis/annot.csv");
+# Match probes in the data set to the probe IDs in the annotation file
+probes = names(datExpr)
+probes2annot = match(probes, annot$substanceBXH)
+# Get the corresponding Locuis Link IDs
+# As background in the enrichment analysis, we will use all probes in the analysis
+allLLIDs = annot$LocusLinkID[probes2annot];
+
+```
+
+
+# 5.2 - Install GO database for the species
+Note: The organism-specific packages have names of the form org.Xx.eg.db, where Xx stands for organism code, for example, Mm for mouse, Hs for human, etc
+```{r, eval=FALSE}
+# BiocManager::install(c("GenomicFeatures", "AnnotationDbi"))
+# BiocManager::install("biocLite")
+# source("http://bioconductor.org/biocLite.R") 
+# biocLite("org.Mm.eg.db")                    
+
+BiocManager::install("GO.db")
+BiocManager::install("org.Mm.eg.db")
+
+```
+
+# 5.3 - Load GO database and do GO enrichments
+```{r, eval=FALSE}
+library (org.Mm.eg.db)
+GOenr = GOenrichmentAnalysis(moduleColors, allLLIDs, organism = "mouse", nBestP = 10);
+
+```
+  The GO database and GO enrichment were assessed to understand the functional characteristics of the hub genes and their involvement in biological processes and pathways. 
+
+# 5.4 - The function runs for a while and returns a long list, where the most interesting component of which is an enrichment table containing the 10 best terms for each module present in moduleColors.
+```{r, eval=FALSE}
+tab = GOenr$bestPTerms[[4]]$enrichment
+names(tab)
+```
+
+# 5.5 - Write the results into a file
+```{r, eval=FALSE}
+# write.table(tab, file = "GOEnrichmentTable.csv", sep = ",", quote = TRUE, row.names = FALSE)
+```
+  The result portrays the genes and their different molecular function, biological properties and cellular components highlighting the different color modules.Some of the genes are involved in signalling, regulation of animal organ formation, histone modification with an endless list. Network analysis enables the identification of the key nodes (genes) within the network that have a significant impact on the network behavior. 

@@ -1,0 +1,438 @@
+---
+title: "eQTL_WEEK6"
+author: "Rofiah Adeyemi"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  word_document: default
+---
+
+# eQTL
+
+  eQTL stands for expression quantitative trait locus. It refers to a genetic variant or locus in the genome that is associated with the expression level of a specific gene. An eQTL represents a specific genetic marker that influences the expression or activity of a particular gene. It can help explain the variation in gene expression levels observed among individuals. eQTL analysis involves identifying these genetic variants and determining their relationship with gene expression patterns.Large-scale genetic and gene expression data sets, such as those produced by transcriptomics and genome-wide association studies (GWAS), are frequently used in eQTL investigations. 
+  Matrix eQTL, QTLtools, FastQTL, PLINK, PrediXcan are bioinformatcics tools utilized for eQTL.A popular R package for eQTL analysis is matrix eQTL. It offers a thorough framework for carrying out cis-eQTL and trans-eQTL analyses as part of genome-wide eQTL mapping. Researchers can examine extensive gene expression data and genetic variants using matrix eQTL, including covariates, and carrying out permutation-based significance testing.
+
+# STEP 1: Set working directory
+```{r setup, include=FALSE}
+setwd("C:/Users/rofia/OneDrive/Desktop/BGA/eQTL_WEEK6")
+# website to check MatrixeQTL package input files and edit them for new project
+# https://bios.unc.edu/research/genomic_software/Matrix_eQTL/runit.html#own
+```
+
+
+# STEP 2: Download the dataset from the source
+```{r}
+#options(repos = CRANmirror)
+options(repos = "Matrix_eQTL_R/Matrix_eQTL_engine.r")
+
+# source("Matrix_eQTL_R/Matrix_eQTL_engine.r")
+# 1. snpsloc.txt
+# 2. geneloc.txt
+# 3. Covariates.txt
+# 4. GE.txt
+# 5. SNP.txt
+install.packages("MatrixEQTL")
+library(MatrixEQTL)
+```
+
+# STEP 3: Location of the package with the data files.
+```{r}
+base.dir = find.package('MatrixEQTL');
+```
+
+
+  In order to evaluate the association between genetic variations and levels of gene expression, linear regression is a modelling technique that is frequently used in eQTL study. It presupposes that the genetic variant (an independent variable) and gene expression (a dependent variable) have a linear relationship. The model calculates the magnitude and importance of the genetic variation's influence on gene expression.
+# SETTINGS
+# a) Linear model to use, modelANOVA, modelLINEAR, or modelLINEAR_CROSS
+```{r}
+useModel = modelLINEAR; # modelANOVA, modelLINEAR, or modelLINEAR_CROSS
+```
+
+
+  The base directory and the relative path to the file are combined in this code snippet to create the file path for an SNP file. The variable SNP_file_name stores the obtained file path for further usage in the study.
+# b) Genotype file name
+```{r}
+SNP_file_name = paste(base.dir, "/data/SNP.txt", sep="");
+```
+
+
+```{r}
+SNP_practice_name = paste("C:/Users/rofia/Downloads/SNP_practice.txt", sep="");
+```
+
+# C) Gene expression file name
+```{r}
+# the file path for the expression data is indicated
+expression_file_name = paste(base.dir, "/data/GE.txt", sep="");
+```
+
+# d) Covariates file name
+```{r}
+# Set to character() for no covariates
+covariates_file_name = paste(base.dir, "/data/Covariates.txt", sep="");
+
+```
+
+# e) Output file name
+```{r}
+output_file_name = tempfile();
+```
+
+# f) Only associations significant at this level will be saved
+```{r}
+pvOutputThreshold = 1e-2;
+```
+
+# g) Error covariance matrix
+```{r}
+# Set to numeric() for identity.
+errorCovariance = numeric();
+# errorCovariance = read.table("Sample_Data/errorCovariance.txt");
+```
+
+# h) Load genotype data
+```{r}
+snps = SlicedData$new();
+snps$fileDelimiter = "\t"; # the TAB character
+snps$fileOmitCharacters = "NA"; # denote missing values;
+snps$fileSkipRows = 1; # one row of column labels
+snps$fileSkipColumns = 1; # one column of row labels
+snps$fileSliceSize = 2000; # read file in slices of 2,000 rows
+snps$LoadFile(SNP_file_name);
+
+```
+
+
+# i) Load gene expression data
+```{r}
+gene = SlicedData$new();
+gene$fileDelimiter = "\t"; # the TAB character
+gene$fileOmitCharacters = "NA"; # denote missing values;
+gene$fileSkipRows = 1; # one row of column labels
+gene$fileSkipColumns = 1; # one column of row labels
+gene$fileSliceSize = 2000; # read file in slices of 2,000 rows
+gene$LoadFile(expression_file_name);
+```
+# j) Load covariates:
+  Covariates, also known as independent variables or predictors, are extra factors that are analysed along with the primary variables of interest in statistical analysis. 
+```{r}
+cvrt = SlicedData$new();
+cvrt$fileDelimiter = "\t"; # the TAB character
+cvrt$fileOmitCharacters = "NA"; # denote missing values;
+cvrt$fileSkipRows = 1; # one row of column labels
+cvrt$fileSkipColumns = 1; # one column of row labels
+if(length(covariates_file_name)>0) {
+  cvrt$LoadFile(covariates_file_name);
+}
+
+```
+# k) Run the analysis
+```{r}
+me = Matrix_eQTL_engine(
+snps = snps,
+gene = gene,
+cvrt = cvrt,
+output_file_name = output_file_name,
+pvOutputThreshold = pvOutputThreshold,
+useModel = useModel,
+errorCovariance = errorCovariance,
+verbose = TRUE,
+pvalue.hist = TRUE,
+min.pv.by.genesnp = FALSE,
+noFDRsaveMemory = FALSE);
+```
+"Processing covariates" and "Task finished in 0.02 seconds" that the covariates, or extra variables used in the analysis to account for confounding variables, have been processed. In 0.02 seconds, the processing task was finished, indicating a rather quick procedure.
+Task completed in 0.01 seconds and "Processing gene expression data (imputation, residualization)": denotes the processing of the gene expression data, including residualization (adjustment for other variables) and imputation (estimation of missing values). It took 0.01 seconds for the processing task to finish.
+Both "Creating output file(s)" and "Task finished in 0.02 seconds": suggests that output files were produced, containing the eQTL analysis' findings. The creation process took 0.02 seconds to complete.
+The analysis was 100% complete, indicating that all calculations or iterations required were completed. Five eQTLs—genetic variations linked to gene expression—were found through investigation. The time required to finish the eQTL analysis was 0.05 seconds.
+
+
+# l) Results:
+```{r}
+cat('Analysis done in: ', me$time.in.sec, ' seconds', '\n');
+## Analysis done in: 0 seconds
+cat('Detected eQTLs:', '\n');
+## Detected eQTLs:
+show(me$all$eqtls)
+
+#We can also figure look at the number and type of eQTL
+#Number of eQTL
+show(me$all$neqtls)
+## [1] 5
+#View the eQTL in the table
+View(me$all$eqtls)
+```
+  Overall, the code offers a summary of the length of the analysis, the number of eQTLs found, and the choice to examine the detailed eQTL data in a tabular format.
+
+# m) Plot the histogram of all p-values
+```{r}
+plot(me)
+```
+
+# Test local and distant gene-SNP pairs separately and plot Q-Q plots of local and distant pvalues
+```{r}
+#source("Matrix_eQTL_R/Matrix_eQTL_engine.r");
+library(MatrixEQTL)
+```
+
+
+The code finds the directory path of the "MatrixEQTL" package by using find.package("MatrixEQTL"). 
+# a) Location of the package with the data files.
+```{r}
+base.dir = find.package('MatrixEQTL');
+```
+
+
+  UseModel =  modelLINEAR, implies that the linear model was the analysis's preferred option.
+# b) Settings Linear model to use, modelANOVA, modelLINEAR, or
+modelLINEAR_CROSS
+```{r}
+useModel = modelLINEAR; # modelANOVA, modelLINEAR, or modelLINEAR_CROSS
+```
+
+
+# c) Genotype file name
+```{r}
+ SNP_file_name = paste(base.dir,"/data/SNP.txt", sep="");
+```
+
+# d) SNP location file name
+```{r}
+snps_location_file_name = paste(base.dir, "/data/snpsloc.txt", sep="");
+```
+
+# e) Gene expression file name
+```{r}
+expression_file_name = paste(base.dir, "/data/GE.txt", sep="");
+gene_location_file_name = paste(base.dir, "/data/geneloc.txt", sep="");
+```
+
+# f) Covariates file name
+```{r}
+# Set to character() for no covariates
+covariates_file_name = paste(base.dir, "/data/Covariates.txt", sep="");
+```
+
+  The code makes sure that the output files have original temporary file names by using tempfile().
+# g) Output file name
+```{r}
+output_file_name_cis = tempfile();
+output_file_name_tra = tempfile();
+```
+
+# h) Only associations significant at this level will be saved
+```{r}
+pvOutputThreshold_cis = 2e-2;
+pvOutputThreshold_tra = 1e-2;
+```
+
+
+  It is implied by the fact that errorCovariance is set to be an empty numeric vector that this variable will be employed to accumulate or store data relevant to error covariances in upcoming operations or calculations, which is the covariance between errors or residuals in a statistical model. 
+# i) Error covariance matrix
+```{r}
+# Set to numeric() for identity.
+errorCovariance = numeric();
+# errorCovariance = read.table("Sample_Data/errorCovariance.txt");
+```
+
+
+  The distance cutoff utilised is represented by the variable cisDist. Cis-eQTLs are genetic variants that are positioned near to the gene they are regulating in eQTL study. The maximum genomic distance between the genetic variant and the gene is frequently determined using the distance threshold.
+  By giving cisDist the value 1e6, it is implied that a distance cutoff of 1 megabase—or 1,000,000 base pairs—is being utilised to identify cis-eQTLs. Any genetic variation that falls within this range of the gene will be taken into account for the cis-eQTL study.
+# j) Distance for local gene-SNP pairs
+```{r}
+cisDist = 1e6;
+```
+
+# k) Load genotype data
+```{r}
+snps = SlicedData$new();
+snps$fileDelimiter = "\t"; # the TAB character
+snps$fileOmitCharacters = "NA"; # denote missing values;
+snps$fileSkipRows = 1; # one row of column labels
+snps$fileSkipColumns = 1; # one column of row labels
+snps$fileSliceSize = 2000; # read file in slices of 2,000 rows
+snps$LoadFile(SNP_file_name);
+```
+
+# l) Load gene expression data
+```{r}
+gene = SlicedData$new();
+gene$fileDelimiter = "\t"; # the TAB character
+gene$fileOmitCharacters = "NA"; # denote missing values;
+gene$fileSkipRows = 1; # one row of column labels
+gene$fileSkipColumns = 1; # one column of row labels
+gene$fileSliceSize = 2000; # read file in slices of 2,000 rows
+gene$LoadFile(expression_file_name);
+```
+
+# m) Load covariates
+```{r}
+cvrt = SlicedData$new();
+cvrt$fileDelimiter = "\t"; # the TAB character
+cvrt$fileOmitCharacters = "NA"; # denote missing values;
+cvrt$fileSkipRows = 1; # one row of column labels
+cvrt$fileSkipColumns = 1; # one column of row labels
+if(length(covariates_file_name)>0) {
+cvrt$LoadFile(covariates_file_name);
+}
+
+```
+# n) Run the analysis
+```{r}
+snpspos = read.table(snps_location_file_name, header = TRUE, stringsAsFactors
+= FALSE);
+genepos = read.table(gene_location_file_name, header = TRUE, stringsAsFactors
+= FALSE);
+me = Matrix_eQTL_main(
+snps = snps,
+gene = gene,
+cvrt = cvrt,
+output_file_name = output_file_name_tra,
+pvOutputThreshold = pvOutputThreshold_tra,
+useModel = useModel,
+errorCovariance = errorCovariance,
+verbose = TRUE,
+output_file_name.cis = output_file_name_cis,
+pvOutputThreshold.cis = pvOutputThreshold_cis,
+snpspos = snpspos,
+genepos = genepos,
+cisDist = cisDist,
+pvalue.hist = "qqplot",
+min.pv.by.genesnp = FALSE,
+noFDRsaveMemory = FALSE);
+
+```
+  Overall, the results show that the eQTL study was successfully completed, that matches between the identified genes and SNPs were discovered, and that substantial correlations between genetic variations and levels of gene expression were detected. Fast completion of the analysis demonstrated how effective the procedure was.
+
+```{r}
+unlink(output_file_name_tra);
+unlink(output_file_name_cis);
+```
+  The code makes sure the output files produced by the eQTL analysis are destroyed or deleted once they are no longer required by utilising the unlink() function.
+
+
+# o) Results:
+```{r}
+cat('Analysis done in: ', me$time.in.sec, ' seconds', '\n');
+## Analysis done in: 0.03 seconds
+cat('Detected local eQTLs:', '\n');
+## Detected local eQTLs:
+show(me$cis$eqtls)
+## snps gene statistic pvalue FDR beta
+## 1 Snp_05 Gene_03 38.812160 5.515519e-14 5.515519e-12 0.4101317
+## 2 Snp_04 Gene_10 3.201666 7.608981e-03 3.804491e-01 0.2321123
+cat('Detected distant eQTLs:', '\n');
+## Detected distant eQTLs:
+show(me$trans$eqtls)
+
+```
+  The result gives details about the found eQTLs, such as their nature (local or distant) and the statistical values connected with them, the FDR and beta.
+
+# p) Plot the Q-Q plot of local and distant p-values
+```{r}
+plot(me)
+```
+  The observed p-values should roughly fall along the diagonal line for a Q-Q plot to perform as predicted, showing that the expected distribution is followed by the observed p-values. Disturbances from the diagonal line, however, point to departures from the null hypothesis and the existence of correlations between genetic variations and gene expression.
+The blue line in the sample plot reflects the predicted distribution under the null hypothesis, and the red points in the plot represent the actual p-values that were observed. substantial eQTL associations was observed as the red points vary greatly from the blue line.
+
+# 3. Create an artificial dataset and plot the histogram and Q-Q plot of all p-values
+```{r}
+library('MatrixEQTL')
+```
+
+# a) Number of samples
+```{r}
+n = 100;
+```
+
+# b) Number of variables
+```{r}
+ngs = 2000;
+```
+
+ The line of code creates a vector called pop that contains random values taken from a normal distribution with mean 0 and standard deviation 0.2. The randomness of the underlying normal distribution causes the particular values produced to differ each time the code is run.
+# c) Common signal in all variables (population stratification)
+```{r}
+pop = 0.2 * rnorm(n);
+```
+
+  The code produces two matrices (snps.mat and gene.mat) by combining the pop vector, calculations on the snps.mat matrix, and random values from a regular normal distribution. Because the underlying normal distribution is random, the precise numbers in the matrices will change every time the code is run.
+# d) Data matrices
+```{r}
+snps.mat = matrix(rnorm(n*ngs), ncol = ngs) + pop;
+gene.mat = matrix(rnorm(n*ngs), ncol = ngs) + pop +
+snps.mat*((1:ngs)/ngs)^9/2;
+
+```
+
+  The code initialises three SlicedData objects with specific data, naming them snps1, gene1, and cvrt1. Before handing the matrices to the constructor routines, it transposes the snps.mat and gene.mat files. The variables snps.mat and gene.mat are also deleted from the workspace using the rm() method.
+# e) Data objects for Matrix eQTL engine
+```{r}
+snps1 = SlicedData$new( t( snps.mat ) );
+gene1 = SlicedData$new( t( gene.mat ) );
+cvrt1 = SlicedData$new( );
+rm(snps.mat, gene.mat)
+```
+
+  Reducing the size of the data sets enables more effective processing and analysis, since we are working with huge datasets.
+# f) Slice data in blocks of 500 variables
+```{r}
+snps1$ResliceCombined(500);
+gene1$ResliceCombined(500);
+```
+
+# Name of temporary output file
+```{r}
+filename = tempfile();
+```
+
+  The output contains details on the eQTL analysis's progress and outcomes, including the handling of covariates and gene expression data, the production of output files, and no eQTL was discovered in this analysis.
+# g) Perform analysis recording information for a histogram
+```{r}
+meh = Matrix_eQTL_engine(
+snps = snps1,
+gene = gene1,
+cvrt = cvrt1,
+output_file_name = filename,
+pvOutputThreshold = 1e-100,
+useModel = modelLINEAR,
+errorCovariance = numeric(),
+verbose = TRUE,
+pvalue.hist = 100);
+unlink( filename );
+```
+
+# h) Histogram
+```{r}
+
+#png(filename = "histogram.png", width = 650, height = 650)
+plot(meh, col="grey")
+```
+Histograms plot the p-value ranges on the x-axis and exhibit the density of the observed p-values on the y-axis. The number of observations falling inside a given p-value range is shown by each bar. Only a few p-value were observed to fall out of the p-value range. Peak towards a lower p-value was observed which indicates enrichment of significant association.
+
+
+# i) Perform the same analysis recording information for a Q-Q plot
+```{r}
+meq = Matrix_eQTL_engine(
+snps = snps1,
+gene = gene1,
+cvrt = cvrt1,
+output_file_name = filename,
+pvOutputThreshold = 1e-6,
+useModel = modelLINEAR,
+errorCovariance = numeric(),
+verbose = TRUE,
+pvalue.hist = "qqplot");
+```
+The covariates, which are factors or variables related to the study or experiment, are being processe, completes quickly in 0.02 seconds.
+Progress from 6.25% to 100% was observed, with the number of eQTLs detected at each stage. This eQTL analysis took about 0.66 seconds.
+
+```{r}
+unlink( filename );
+# png(filename = "QQplot.png", width = 650, height = 650)
+plot(meq, pch = 16, cex = 0.7)
+```
+The Q-Q plot comprises of the observed p-values on the y-axis against the expected p-values. It illustrates the deviation from the diagonal/null hypothesis line and could infer the presence of true associations between the p-values.
+
+
+  Conclusively, when histogram was utilized for the eQTL analyis, no eQTL was discovered but skew/peak illustrated which is synonymous to enrichment of significant association of the p-values. The usage of Q-Q plot resulted in the identification of 32 eQTLs which indicates the discovery of 32 genetic varaints associated with gene expression variation.
